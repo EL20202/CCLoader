@@ -540,8 +540,73 @@ appliers["DEBUG"] = async function (state) {
 // combine the values of an object/array with another object/array. similar to non-patchstep patching.
 appliers["MERGE_CONTENT"] = async function (state) {
 	if (!("content" in this)) {
-		state.debugState.throwError("ValueError", 'content must be set');
+		state.debugState.throwError("ValueError", 'content must be set.');
 	}
 
 	photomerge(state.currentValue, this["content"]);
 }
+
+// apply some operation on an existing key
+appliers["MODIFY_KEY"] = async function (state) {
+	if (!("index" in this)) {
+		state.debugState.throwError('Error', 'index must be set.');
+	}
+	const index = this["index"];
+	if (!(index in state.currentValue)) {
+		state.debugState.throwError('Error', `key ${index} does not exist in current scope`)
+	}
+	if (!("operator" in this)) {
+		state.debugState.throwError('Error', 'operator must be set.');
+	}
+	if (!("value" in this)) {
+		state.debugState.throwError('Error', 'value must be set.');
+	}
+
+	const operator = this["operator"];
+	const value = this["value"];
+
+	const valueType = typeof value;
+	const currentValueType = typeof state.currentValue[index];
+ 
+	// want to avoid any situations which could result in a NaN or worse
+	// 'add' is treated special to allow for string concatenation
+	if(operator !== "add") {
+		if(valueType !== "number") {
+			state.debugState.throwError("TypeError", `type ${valueType} of value not valid for operation '${operator}'`)
+		}
+		if(currentValueType !== "number") {
+			state.debugState.throwError("TypeError", `type ${currentValueType} of existing value not valid for operation '${operator}'`)
+		}
+	} else {
+		if(valueType !== "number" && valueType !== "string") {
+			state.debugState.throwError("TypeError", `type ${valueType} of value not valid for operation '${operator}'`)
+		}
+		if(currentValueType !== "number" && currentValueType !== "string") {
+			state.debugState.throwError("TypeError", `type ${currentValueType} of existing value not valid for operation '${operator}'`)
+		}
+		
+		if(currentValueType !== valueType) {
+			state.debugState.throwError("TypeError", `type of value and existing value must match for operation '${operator}'`)
+		}
+	}
+
+	switch(operator) {
+		case "add": 
+			state.currentValue[index] += value;
+			break;
+		case "sub": 
+			state.currentValue[index] -= value;
+			break;
+		case "mult": 
+			state.currentValue[index] *= value;
+			break;
+		case "div": 
+			state.currentValue[index] /= value;
+			break;
+		case "mod":
+			state.currentValue[index] %= value;
+			break;
+		default:
+			state.debugState.throwError("ValueError", `invalid operator ${operator}`)
+	}
+};
