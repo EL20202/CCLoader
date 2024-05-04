@@ -371,6 +371,53 @@ function valueInsertion(obj, keyword, value) {
 	}
 }
 
+function cleanValueInsertion(obj, value) {
+	function indexValue(stringOfKeys = "") {
+		if(!stringOfKeys) return value;
+		
+		//This turns a string that was "[x][y]" into ["x", "y"]
+		let indices = stringOfKeys.slice(1,-1).split("][");
+		let workingValue = value;
+		
+		for(let index of indices) {
+			if(!workingValue) break;
+			
+			workingValue = workingValue[index];
+		}
+		return workingValue;
+	}
+
+	const baseValueMatchRegex = "__FORVALUE__((?:\\[[^\\]]+\\])*)"
+	// this matches any strings of the form "__FORVALUE__", optionally including indexing.
+	// the replacement preserves type.
+	const fullStringRegex = RegExp(`^${baseValueMatchRegex}$`);
+	// this matches strings containing "__FORVALUE__" within other strings, for simple replacement.
+	// ultimately, this behaves like FOR_IN would.
+	const partStringRegex = RegExp(baseValueMatchRegex, "g");
+
+	if(typeof obj !== "object") return;
+	// this will work for arrays as well
+	for(let key of Object.keys(obj)) {
+		let curVal = obj[key];
+		if(!curVal) continue;
+		
+		
+		if (typeof curVal === "string") {
+			let match;
+			//this allows proper type preservation, unlike FOR_IN.
+			if(match = curVal.match(fullStringRegex)) {
+				let workingValue = indexValue(match[1]);
+				obj[key] = workingValue;
+				continue;
+			}
+			//otherwise, do the "traditional" behavior.
+			obj[key] = curVal.replace(partStringRegex, (_, p1) => indexValue(p1).toString())
+		} else if(typeof curVal === "object"){
+			cleanValueInsertion(obj[key], value)
+		}
+	}
+}
+
 // -- Step Execution --
 
 appliers["FOR_IN"] = async function (state) {
@@ -394,6 +441,34 @@ appliers["FOR_IN"] = async function (state) {
 		const cloneBody = photocopy(body);
 		const value = values[i];
 		valueInsertion(cloneBody, keyword, value);
+		state.debugState.addStep(i, 'VALUE_INDEX');
+		for (let index = 0; index < cloneBody.length; index++) {
+			const statement = cloneBody[index];
+			const type = statement["type"];
+			state.debugState.addStep(index, type);
+			await applyStep(statement, state);
+			state.debugState.removeLastStep();
+		}
+		state.debugState.removeLastStep();
+	}
+};
+
+appliers["FOR"] = async function (state) {
+	const body = this["body"];
+	const values = this["values"];
+
+	if (!Array.isArray(body)) {
+		state.debugState.throwError('ValueError', 'body must be an array.');
+	}
+
+	if (!Array.isArray(values)) {
+		state.debugState.throwError('ValueError', 'values must be set.');
+	}
+
+	for(let i = 0; i < values.length; i++) {
+		const cloneBody = photocopy(body)
+		const value = values[i];
+		cleanValueInsertion(cloneBody, value);
 		state.debugState.addStep(i, 'VALUE_INDEX');
 		for (let index = 0; index < cloneBody.length; index++) {
 			const statement = cloneBody[index];
